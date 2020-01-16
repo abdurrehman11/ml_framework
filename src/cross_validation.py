@@ -15,9 +15,10 @@ class CrossValidation:
         self,
         df,
         target_cols,
+        shuffle,    
         problem_type="binary_classification",
+        multilabel_delimiter=",",
         num_folds=5,
-        shuffle=True,
         random_state=42,
         ):
 
@@ -25,7 +26,9 @@ class CrossValidation:
         self.target_cols = target_cols
         self.num_targets = len(target_cols)
         self.problem_type = problem_type
+        self.multilabel_delimiter = multilabel_delimiter
         self.num_folds = num_folds
+        # set "shuffle=False" for Time_Series Data
         self.shuffle = shuffle
         self.random_state = random_state
 
@@ -60,15 +63,30 @@ class CrossValidation:
 
             for fold, (train_idx, val_idx) in enumerate(kf.split(X=self.dataframe)):
                 self.dataframe.loc[val_idx, 'kfold'] = fold
-
+                
+        elif self.problem_type.startswith("holdout_"):
+            holdout_percentage = int(self.problem_type.split("_")[1])
+            num_holdout_samples = int(len(self.dataframe) * holdout_percentage / 100)
+            self.dataframe.loc[:len(self.dataframe) - num_holdout_samples, 'kfold'] = 0
+            self.dataframe.loc[len(self.dataframe) - num_holdout_samples:, 'kfold'] = 1
+            
+        elif self.problem_type == "multilabel_classifier":
+            if self.num_targets != 1:
+                raise Exception("Invalid number of targets for this problem type")
+            targets = self.dataframe[self.target_cols[0]].apply(lambda x: len(str(x).split(self.multilabel_delimiter)))
+            kf = model_selection.StratifiedKFold(n_splits=self.num_folds, shuffle=False)
+            for fold, (train_idx, val_idx) in enumerate(kf.split(X=self.dataframe, y=targets)):
+                self.dataframe.loc[val_idx, 'kfold'] = fold
+             
         else:
             raise Exception("Problem type not understood!")
 
         return self.dataframe
 
 if __name__ == "__main__":
-    df = pd.read_csv("../input/train_reg.csv")
-    cv = CrossValidation(df, target_cols=["SalePrice"], problem_type="single_col_regression")
+    df = pd.read_csv("../input/train.csv")
+    cv = CrossValidation(df, target_cols=["target"], 
+                         shuffle=True, problem_type="holdout_10")
     split_df = cv.split()
     print(split_df["kfold"].value_counts())
     
